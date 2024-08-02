@@ -1,0 +1,20 @@
+Cross-validation mean accuracy: 0.845745736290476
+Cross-validation accuracy std: 0.0015848842092534507
+
+Validation Set Accuracy: 0.8478176777770614
+Validation Set F1 Score: 0.8374517366957621
+Validation Set Classification Report:
+              precision    recall  f1-score   support
+
+           1       0.86      0.90      0.88     33137
+           2       0.83      0.94      0.88     43710
+           3       0.95      0.48      0.64     16219
+
+    accuracy                           0.85     93066
+   macro avg       0.88      0.78      0.80     93066
+weighted avg       0.86      0.85      0.84     93066
+
+Confusion Matrix:
+[[29800  3015   322]
+ [ 2307 41295   108]
+ [ 2688  5723  7808]]
