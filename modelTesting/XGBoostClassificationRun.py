@@ -1,0 +1,92 @@
+import numpy as np
+import pandas as pd
+from xgboost import XGBClassifier
+from sklearn.metrics import classification_report, accuracy_score, confusion_matrix
+from sklearn.model_selection import train_test_split, StratifiedKFold
+import joblib
+from tqdm import tqdm
+import os
+
+# Ensure the 'results' folder exists
+os.makedirs("results", exist_ok=True)
+
+# Load the labeled training data from a new CSV (not the one labeled by XGBoost)
+data = pd.read_csv("./classifications/nb_test_predictions_with_embeddings.csv", header=None)
+data = data.values  # Convert DataFrame to NumPy array
+
+# Assuming the last column is the label and the rest are features
+train_embeddings = data[:, :-1]
+train_labels = data[:, -1].astype(int) - 1  # 0-based labels
+
+# Split the data into training and validation sets
+X_train, X_val, y_train, y_val = train_test_split(
+    train_embeddings, train_labels, test_size=0.2, random_state=42
+)
+
+# Define the XGBoost model
+xgb_model = XGBClassifier(use_label_encoder=False, eval_metric='mlogloss')
+
+# Cross-validation with tqdm progress bar
+cv = StratifiedKFold(n_splits=5)
+cross_val_scores = []
+
+for train_index, val_index in tqdm(cv.split(X_train, y_train), total=cv.get_n_splits(), desc="Cross-validation"):
+    X_cv_train, X_cv_val = X_train[train_index], X_train[val_index]
+    y_cv_train, y_cv_val = y_train[train_index], y_train[val_index]
+    xgb_model.fit(X_cv_train, y_cv_train)
+    val_predictions = xgb_model.predict(X_cv_val)
+    score = accuracy_score(y_cv_val, val_predictions)
+    cross_val_scores.append(score)
+
+mean_cv_score = np.mean(cross_val_scores)
+std_cv_score = np.std(cross_val_scores)
+
+# Save cross-validation results to a text file in the 'results' folder
+with open("results/XGBoostResults.txt", "w") as f:
+    f.write(f"Cross-validation mean accuracy: {mean_cv_score}\n")
+    f.write(f"Cross-validation accuracy std: {std_cv_score}\n")
+
+# Train the model on the full training data
+xgb_model.fit(X_train, y_train)
+
+# Save the trained model
+joblib.dump(xgb_model, "./models/xgboost_model.joblib")
+print("Model training completed and saved.")
+
+# Evaluate the model on the validation set
+val_predictions = xgb_model.predict(X_val)
+
+# Adjust labels for reporting
+y_val += 1
+val_predictions += 1
+
+# Evaluate predictions
+val_accuracy = accuracy_score(y_val, val_predictions)
+val_f1 = classification_report(y_val, val_predictions, output_dict=True)["weighted avg"]["f1-score"]
+conf_matrix = confusion_matrix(y_val, val_predictions)
+
+# Save evaluation results to the text file in the 'results' folder
+with open("results/XGBoostResults.txt", "a") as f:
+    f.write(f"\nValidation Set Accuracy: {val_accuracy}\n")
+    f.write(f"Validation Set F1 Score: {val_f1}\n")
+    f.write(f"Validation Set Classification Report:\n{classification_report(y_val, val_predictions)}\n")
+    f.write(f"Confusion Matrix:\n{conf_matrix}\n")
+
+# Load the independent test data without labels (if available)
+test_data = np.load("./data/split/Pca_testSet.npz")
+test_features = test_data["data"]  # Features only
+
+# Ensure feature count matches the model's expected input
+if test_features.shape[1] != X_train.shape[1]:
+    raise ValueError("Feature count mismatch between training and test data.")
+
+# Predict using the XGBoost model
+test_predictions = xgb_model.predict(test_features)
+test_predictions += 1  # Adjust predictions to original labeling
+
+# Combine test features with predictions
+test_results = np.hstack((test_features, test_predictions.reshape(-1, 1)))
+
+# Save predictions and embeddings to a CSV file
+np.savetxt("results/xgb_test_predictions_with_embeddings.csv", test_results, delimiter=",", fmt="%.6f")
+print("Predictions and embeddings for the test set have been saved to 'results/xgb_test_predictions_with_embeddings.csv'.")
